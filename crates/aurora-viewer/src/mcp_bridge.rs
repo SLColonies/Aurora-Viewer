@@ -3003,6 +3003,25 @@ impl App {
                 return;
             }
             item.item_id
+        } else if let Some(id) = script_item_id {
+            // An item named by id is never a reason to make a new script. Its
+            // object's contents may simply not be fetched yet (straight after a
+            // login they are not): save to it, and let the simulator refuse an
+            // id the object does not hold. If the contents ARE known and lack
+            // it, say so instead.
+            let known = self
+                .build
+                .contents
+                .objects
+                .get(&object_uuid)
+                .is_some_and(|inv| !inv.loading && !inv.items.is_empty());
+            if known {
+                let _ = reply_tx.send(Err(McpError::InvalidParams(format!(
+                    "script_item_id {id} is not in object {object_local_id}: lsl_inspect_object_scripts lists its scripts"
+                ))));
+                return;
+            }
+            id
         } else {
             // A new, empty script made by the simulator (the Contents tab's New
             // Script). Never a copy of an inventory script: its own code would
