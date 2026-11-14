@@ -3004,24 +3004,11 @@ impl App {
             }
             item.item_id
         } else {
-            let template_script = self.world.inventory.items.values().find(|it| {
-                let mask = crate::world::inventory::actions::agent_mask(it, self.world.agent_id);
-                (it.asset_type == 10 || it.inv_type == 10) && (mask & (perm::COPY | perm::MODIFY)) == (perm::COPY | perm::MODIFY)
-            });
-            if let Some(template) = template_script {
-                // Dropped NOT running: the template is whatever copy+modify script the
-                // inventory yields first, and its own code must never run in the target
-                // object before our source replaces it. The save below sets `running`.
-                if let Some(drop) = crate::build::contents_drop::item_drop(&self.world, idx, template, false) {
-                    self.send(NetCommand::Build(drop.command));
-                } else {
-                    self.build.new_script(&self.world, idx, is_lua);
-                    self.flush_build();
-                }
-            } else {
-                self.build.new_script(&self.world, idx, is_lua);
-                self.flush_build();
-            }
+            // A new, empty script made by the simulator (the Contents tab's New
+            // Script). Never a copy of an inventory script: its own code would
+            // run in the target object before ours replaced it.
+            self.build.new_script(&self.world, idx, is_lua);
+            self.flush_build();
             self.build.request_contents(&self.world, idx, true);
             self.flush_build();
             let immediate_new = self
@@ -4320,9 +4307,35 @@ impl App {
         }
 
         let Some(item_uuid) = item_id else {
-            return Err(McpError::InvalidParams(
-                "Provide 'item_id' of an existing modifiable notecard".into(),
-            ));
+            // No item: a new notecard in the Notecards folder, as the notecard
+            // editor's Save does (CreateNotecardItem: create, then upload the text).
+            let parent = self
+                .world
+                .inventory
+                .folders
+                .values()
+                .find(|folder| !folder.library && folder.info.type_default == 7)
+                .map_or(self.world.inventory.root, |folder| folder.info.id);
+            if parent.is_nil() {
+                return Err(McpError::NotInWorld);
+            }
+            let name = name.map(str::trim).filter(|n| !n.is_empty()).unwrap_or("New Note").to_owned();
+            let request = Uuid::new_v4();
+            self.send(NetCommand::CreateNotecardItem {
+                request,
+                parent,
+                name: name.clone(),
+                data: encoded.clone(),
+                permissions: None,
+            });
+            return Ok(ViewerResponse::Json(json!({
+                "ok": true,
+                "created": true,
+                "name": name,
+                "folder_id": parent.to_string(),
+                "bytes": encoded.len(),
+                "note": "created asynchronously: find its item_id with inventory_search by name",
+            })));
         };
         if !crate::world::inventory::preview::can_edit(&self.world.inventory, item_uuid, self.world.god_level) {
             return Err(McpError::PermissionDenied("Notecard is not modifiable or is in the Library".into()));
