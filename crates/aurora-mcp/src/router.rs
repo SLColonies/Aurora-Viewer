@@ -2237,8 +2237,22 @@ fn inspect_viewer_api(api: &str, operation: Option<&str>) -> Value {
     })
 }
 
+/// Every tool takes the `lease_id` the server reads from any call
+/// (`send_to_viewer` -> `verify_for_mutation`), so every schema lists it: a
+/// client that sends only the fields a schema declares could otherwise never
+/// pass the lease a mutating tool demands, and `additionalProperties: false`
+/// (avatar_stop) refused it outright.
+fn with_lease_id(mut def: ToolDefinition) -> ToolDefinition {
+    if let Some(props) = def.input_schema.get_mut("properties").and_then(Value::as_object_mut) {
+        props.entry("lease_id").or_insert_with(|| {
+            json!({ "type": "string", "description": "Active control lease ID (control_acquire / viewer_control_acquire); required by tools that change anything." })
+        });
+    }
+    def
+}
+
 pub fn list_tools_for_profile(profile: McpProfile) -> Vec<ToolDefinition> {
-    let all = all_tool_definitions();
+    let all: Vec<ToolDefinition> = all_tool_definitions().into_iter().map(with_lease_id).collect();
     match profile {
         McpProfile::All => all,
         McpProfile::Compact => all.into_iter().filter(|t| t.in_compact_profile).collect(),
@@ -3682,6 +3696,22 @@ pub fn all_tool_definitions() -> Vec<ToolDefinition> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn every_listed_tool_takes_lease_id() {
+        // send_to_viewer reads `lease_id` from any call and verify_for_mutation
+        // demands it of every mutating tool: a schema without it leaves a client
+        // that sends only declared fields unable to call that tool at all.
+        for profile in [McpProfile::All, McpProfile::Compact] {
+            for t in list_tools_for_profile(profile) {
+                assert!(
+                    t.input_schema["properties"].get("lease_id").is_some(),
+                    "{} does not list lease_id",
+                    t.name
+                );
+            }
+        }
+    }
 
     #[test]
     fn mcp_router_exposes_legacy_and_aurora_tools() {
