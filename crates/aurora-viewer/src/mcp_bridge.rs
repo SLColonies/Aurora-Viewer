@@ -3004,21 +3004,11 @@ impl App {
             }
             item.item_id
         } else {
-            let template_script = self.world.inventory.items.values().find(|it| {
-                let mask = crate::world::inventory::actions::agent_mask(it, self.world.agent_id);
-                (it.asset_type == 10 || it.inv_type == 10) && (mask & (perm::COPY | perm::MODIFY)) == (perm::COPY | perm::MODIFY)
-            });
-            if let Some(template) = template_script {
-                if let Some(drop) = crate::build::contents_drop::item_drop(&self.world, idx, template, running) {
-                    self.send(NetCommand::Build(drop.command));
-                } else {
-                    self.build.new_script(&self.world, idx, is_lua);
-                    self.flush_build();
-                }
-            } else {
-                self.build.new_script(&self.world, idx, is_lua);
-                self.flush_build();
-            }
+            // A new, empty script made by the simulator (the Contents tab's New
+            // Script). Never a copy of an inventory script: its own code would
+            // run in the target object before ours replaced it.
+            self.build.new_script_running(&self.world, idx, is_lua, false);
+            self.flush_build();
             self.build.request_contents(&self.world, idx, true);
             self.flush_build();
             let immediate_new = self
@@ -4250,22 +4240,40 @@ impl App {
             ));
         }
         let name = item.name.clone();
-        let text = if self.inventory_ui.preview == Some(item_id) {
-            self.inventory_ui
-                .preview_text
-                .as_ref()
-                .and_then(|r| r.as_ref().ok())
-                .cloned()
-                .unwrap_or_default()
-        } else {
-            String::new()
-        };
-        Ok(ViewerResponse::Json(json!({
-            "ok": true,
-            "item_id": item_id.to_string(),
-            "name": name,
-            "text": text,
-        })))
+        // The text is only held while the notecard is the inventory preview. If it
+        // is not, start fetching it (as opening it in inventory does) and say so,
+        // rather than answer "" as if the notecard were empty.
+        if self.inventory_ui.preview != Some(item_id) {
+            let item = item.clone();
+            self.inventory_ui.preview = Some(item_id);
+            self.inventory_ui.preview_text = None;
+            self.send(NetCommand::PreviewInventoryItem(item));
+            return Ok(ViewerResponse::Json(json!({
+                "ok": true,
+                "item_id": item_id.to_string(),
+                "name": name,
+                "loading": true,
+                "text": null,
+                "note": "fetching the notecard: call notecard_read again in a moment",
+            })));
+        }
+        match self.inventory_ui.preview_text.as_ref() {
+            None => Ok(ViewerResponse::Json(json!({
+                "ok": true,
+                "item_id": item_id.to_string(),
+                "name": name,
+                "loading": true,
+                "text": null,
+                "note": "still fetching: call notecard_read again in a moment",
+            }))),
+            Some(Err(e)) => Err(McpError::InvalidParams(format!("notecard {item_id} could not be read: {e}"))),
+            Some(Ok(text)) => Ok(ViewerResponse::Json(json!({
+                "ok": true,
+                "item_id": item_id.to_string(),
+                "name": name,
+                "text": text,
+            }))),
+        }
     }
 
     fn handle_mcp_notecard_write(
@@ -4317,9 +4325,35 @@ impl App {
         }
 
         let Some(item_uuid) = item_id else {
-            return Err(McpError::InvalidParams(
-                "Provide 'item_id' of an existing modifiable notecard".into(),
-            ));
+            // No item: a new notecard in the Notecards folder, as the notecard
+            // editor's Save does (CreateNotecardItem: create, then upload the text).
+            let parent = self
+                .world
+                .inventory
+                .folders
+                .values()
+                .find(|folder| !folder.library && folder.info.type_default == 7)
+                .map_or(self.world.inventory.root, |folder| folder.info.id);
+            if parent.is_nil() {
+                return Err(McpError::NotInWorld);
+            }
+            let name = name.map(str::trim).filter(|n| !n.is_empty()).unwrap_or("New Note").to_owned();
+            let request = Uuid::new_v4();
+            self.send(NetCommand::CreateNotecardItem {
+                request,
+                parent,
+                name: name.clone(),
+                data: encoded.clone(),
+                permissions: None,
+            });
+            return Ok(ViewerResponse::Json(json!({
+                "ok": true,
+                "created": true,
+                "name": name,
+                "folder_id": parent.to_string(),
+                "bytes": encoded.len(),
+                "note": "created asynchronously: find its item_id with inventory_search by name",
+            })));
         };
         if !crate::world::inventory::preview::can_edit(&self.world.inventory, item_uuid, self.world.god_level) {
             return Err(McpError::PermissionDenied("Notecard is not modifiable or is in the Library".into()));

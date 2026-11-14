@@ -166,6 +166,12 @@ impl BuildTool {
     /// LLPanelContents::createTaskInventoryItemHelper without
     /// CreateTaskInventoryItem: the server then writes its default SLua script.
     pub fn new_script(&mut self, world: &World, idx: usize, lua: bool) {
+        self.new_script_running(world, idx, lua, true);
+    }
+
+    /// New Script, with the simulator's placeholder running or not. MCP makes it
+    /// stopped: its "Hello, Avatar!" would run before the new source replaces it.
+    pub fn new_script_running(&mut self, world: &World, idx: usize, lua: bool, running: bool) {
         let Some(o) = world.objects.get(idx) else { return };
         let now = now_unix();
         let item = TaskItem {
@@ -192,7 +198,7 @@ impl BuildTool {
         self.send(BuildCmd::RezScript {
             handle,
             local_id,
-            enabled: true,
+            enabled: running,
             group_id: world.groups.active,
             item: Box::new(item),
         });
