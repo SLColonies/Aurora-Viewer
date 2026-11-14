@@ -3738,6 +3738,22 @@ mod tests {
     use super::*;
 
     #[test]
+    fn every_listed_tool_takes_lease_id() {
+        // send_to_viewer reads `lease_id` from any call and verify_for_mutation
+        // demands it of every mutating tool: a schema without it leaves a client
+        // that sends only declared fields unable to call that tool at all.
+        for profile in [McpProfile::All, McpProfile::Compact] {
+            for t in list_tools_for_profile(profile) {
+                assert!(
+                    t.input_schema["properties"].get("lease_id").is_some(),
+                    "{} does not list lease_id",
+                    t.name
+                );
+            }
+        }
+    }
+
+    #[test]
     fn mcp_router_exposes_legacy_and_aurora_tools() {
         let defs = all_tool_definitions();
         assert_eq!(defs.len(), 113, "expected 113 total tools (43 Legacy + 70 Aurora-native)");
