@@ -3007,7 +3007,7 @@ impl App {
             // A new, empty script made by the simulator (the Contents tab's New
             // Script). Never a copy of an inventory script: its own code would
             // run in the target object before ours replaced it.
-            self.build.new_script(&self.world, idx, is_lua);
+            self.build.new_script_running(&self.world, idx, is_lua, false);
             self.flush_build();
             self.build.request_contents(&self.world, idx, true);
             self.flush_build();
@@ -4240,22 +4240,40 @@ impl App {
             ));
         }
         let name = item.name.clone();
-        let text = if self.inventory_ui.preview == Some(item_id) {
-            self.inventory_ui
-                .preview_text
-                .as_ref()
-                .and_then(|r| r.as_ref().ok())
-                .cloned()
-                .unwrap_or_default()
-        } else {
-            String::new()
-        };
-        Ok(ViewerResponse::Json(json!({
-            "ok": true,
-            "item_id": item_id.to_string(),
-            "name": name,
-            "text": text,
-        })))
+        // The text is only held while the notecard is the inventory preview. If it
+        // is not, start fetching it (as opening it in inventory does) and say so,
+        // rather than answer "" as if the notecard were empty.
+        if self.inventory_ui.preview != Some(item_id) {
+            let item = item.clone();
+            self.inventory_ui.preview = Some(item_id);
+            self.inventory_ui.preview_text = None;
+            self.send(NetCommand::PreviewInventoryItem(item));
+            return Ok(ViewerResponse::Json(json!({
+                "ok": true,
+                "item_id": item_id.to_string(),
+                "name": name,
+                "loading": true,
+                "text": null,
+                "note": "fetching the notecard: call notecard_read again in a moment",
+            })));
+        }
+        match self.inventory_ui.preview_text.as_ref() {
+            None => Ok(ViewerResponse::Json(json!({
+                "ok": true,
+                "item_id": item_id.to_string(),
+                "name": name,
+                "loading": true,
+                "text": null,
+                "note": "still fetching: call notecard_read again in a moment",
+            }))),
+            Some(Err(e)) => Err(McpError::InvalidParams(format!("notecard {item_id} could not be read: {e}"))),
+            Some(Ok(text)) => Ok(ViewerResponse::Json(json!({
+                "ok": true,
+                "item_id": item_id.to_string(),
+                "name": name,
+                "text": text,
+            }))),
+        }
     }
 
     fn handle_mcp_notecard_write(
