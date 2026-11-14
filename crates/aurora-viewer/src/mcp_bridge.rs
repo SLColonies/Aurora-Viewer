@@ -3009,7 +3009,10 @@ impl App {
                 (it.asset_type == 10 || it.inv_type == 10) && (mask & (perm::COPY | perm::MODIFY)) == (perm::COPY | perm::MODIFY)
             });
             if let Some(template) = template_script {
-                if let Some(drop) = crate::build::contents_drop::item_drop(&self.world, idx, template, running) {
+                // Dropped NOT running: the template is whatever copy+modify script the
+                // inventory yields first, and its own code must never run in the target
+                // object before our source replaces it. The save below sets `running`.
+                if let Some(drop) = crate::build::contents_drop::item_drop(&self.world, idx, template, false) {
                     self.send(NetCommand::Build(drop.command));
                 } else {
                     self.build.new_script(&self.world, idx, is_lua);
