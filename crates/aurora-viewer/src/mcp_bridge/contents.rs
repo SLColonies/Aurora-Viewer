@@ -130,7 +130,14 @@ enum Check {
 
 enum Stage {
     /// Copy to Inventory sent: waiting for the folder to hold every item.
-    Copied { folder: Uuid, names: Vec<String> },
+    Copied {
+        /// The id asked for; the server may answer another (reply.created), so
+        /// the folder is also recognised by its name among new top-level ones.
+        folder: Uuid,
+        folder_name: String,
+        before: HashSet<Uuid>,
+        names: Vec<String>,
+    },
     /// Waiting for a fresh listing before acting.
     Fetch { op: ContentsOp, asked: bool },
     /// Waiting for a listing that shows the change.
@@ -373,13 +380,33 @@ impl App {
                 }
                 None
             }
-            Stage::Copied { folder, names } => {
+            Stage::Copied {
+                folder,
+                folder_name,
+                before,
+                names,
+            } => {
                 let inv = &self.world.inventory;
-                let arrived: Vec<&aurora_net::inventory::InvItem> = inv.items.values().filter(|it| it.parent == *folder).collect();
-                let all = names.iter().all(|n| arrived.iter().any(|it| &it.name == n));
-                if !all {
+                // the folder asked for, or a new top-level one of its name
+                let candidates: Vec<Uuid> = inv
+                    .folders
+                    .values()
+                    .filter(|f| {
+                        f.info.id == *folder
+                            || (!f.library && f.info.parent == inv.root && &f.info.name == folder_name && !before.contains(&f.info.id))
+                    })
+                    .map(|f| f.info.id)
+                    .collect();
+                let Some((found, arrived)) = candidates.into_iter().find_map(|fid| {
+                    let arrived: Vec<&aurora_net::inventory::InvItem> = inv.items.values().filter(|it| it.parent == fid).collect();
+                    names
+                        .iter()
+                        .all(|n| arrived.iter().any(|it| &it.name == n))
+                        .then_some((fid, arrived))
+                }) else {
                     return None;
-                }
+                };
+                let folder = &found;
                 let items: Vec<Value> = arrived
                     .iter()
                     .map(|it| json!({ "item_id": it.id.to_string(), "name": it.name, "asset_type": it.asset_type }))
@@ -585,9 +612,22 @@ impl App {
                     .map(|pr| pr.name.clone())
                     .filter(|n| !n.is_empty())?; // its name is on its way
                 let names: Vec<String> = items.iter().map(|it| it.name.clone()).collect();
+                let folder_name = crate::build::task_inventory::contents_folder_name(&name);
+                let inv = &self.world.inventory;
+                let before: HashSet<Uuid> = inv
+                    .folders
+                    .values()
+                    .filter(|f| f.info.parent == inv.root && f.info.name == folder_name)
+                    .map(|f| f.info.id)
+                    .collect();
                 match self.mcp_copy_contents(p.object_uuid, name, items) {
                     Ok(folder) => {
-                        p.stage = Stage::Copied { folder, names };
+                        p.stage = Stage::Copied {
+                            folder,
+                            folder_name,
+                            before,
+                            names,
+                        };
                         None
                     }
                     Err(reason) => Some(Err(McpError::PermissionDenied(reason))),
