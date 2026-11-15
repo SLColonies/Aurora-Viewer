@@ -1138,6 +1138,7 @@ impl McpRouter {
             }
 
             "object_contents"
+            | "object_copy_contents_to_inventory"
             | "object_set_permissions"
             | "task_item_permissions"
             | "task_item_remove"
