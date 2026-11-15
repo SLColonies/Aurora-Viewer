@@ -1081,7 +1081,12 @@ impl McpRouter {
                 Ok(text_block(into_json(resp)))
             }
 
-            "object_contents" | "task_item_permissions" | "task_item_remove" | "task_item_add" | "task_notecard_write" => {
+            "object_contents"
+            | "object_set_permissions"
+            | "task_item_permissions"
+            | "task_item_remove"
+            | "task_item_add"
+            | "task_notecard_write" => {
                 let object_local_id =
                     args.get("object_local_id")
                         .and_then(Value::as_u64)
@@ -1098,6 +1103,12 @@ impl McpRouter {
                 let bool_arg = |key: &str| args.get(key).and_then(Value::as_bool);
                 let request = match name {
                     "object_contents" => ViewerRequest::ObjectContents { object_local_id },
+                    "object_set_permissions" => ViewerRequest::ObjectSetPermissions {
+                        object_local_id,
+                        copy: bool_arg("next_owner_copy"),
+                        modify: bool_arg("next_owner_modify"),
+                        transfer: bool_arg("next_owner_transfer"),
+                    },
                     "task_item_permissions" => ViewerRequest::TaskItemPermissions {
                         object_local_id,
                         item_id: uuid_arg("item_id")?,
@@ -2807,6 +2818,21 @@ pub fn all_tool_definitions() -> Vec<ToolDefinition> {
             in_compact_profile: true,
         },
         ToolDefinition {
+            name: "object_set_permissions".into(),
+            description: "Set an object's OWN next-owner copy / modify / transfer (as on the build tool's General tab), and answer once its properties show them. A copy taken afterwards (take_copy) carries them. Omitted flags stay as they are.".into(),
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "object_local_id": { "type": "integer" },
+                    "next_owner_copy": { "type": "boolean" },
+                    "next_owner_modify": { "type": "boolean" },
+                    "next_owner_transfer": { "type": "boolean" }
+                },
+                "required": ["object_local_id"]
+            }),
+            in_compact_profile: true,
+        },
+        ToolDefinition {
             name: "task_item_permissions".into(),
             description: "Set the NEXT-OWNER copy / modify / transfer of an item in a prim's contents, and answer only once a fresh listing shows them (or a timeout error). Omitted flags stay as they are.".into(),
             input_schema: json!({
@@ -3923,7 +3949,7 @@ mod tests {
     #[test]
     fn mcp_router_exposes_legacy_and_aurora_tools() {
         let defs = all_tool_definitions();
-        assert_eq!(defs.len(), 119, "expected 119 total tools (43 Legacy + 76 Aurora-native)");
+        assert_eq!(defs.len(), 120, "expected 120 total tools (43 Legacy + 77 Aurora-native)");
         let names: Vec<&str> = defs.iter().map(|d| d.name.as_str()).collect();
         // Verify all 43 Legacy Viewer compatibility tools
         for legacy in [
