@@ -4320,7 +4320,7 @@ mod tests {
     #[test]
     fn mcp_router_exposes_legacy_and_aurora_tools() {
         let defs = all_tool_definitions();
-        assert_eq!(defs.len(), 125, "expected 125 total tools (43 Legacy + 82 Aurora-native)");
+        assert_eq!(defs.len(), 126, "expected 126 total tools (43 Legacy + 83 Aurora-native)");
         let names: Vec<&str> = defs.iter().map(|d| d.name.as_str()).collect();
         // Verify all 43 Legacy Viewer compatibility tools
         for legacy in [
