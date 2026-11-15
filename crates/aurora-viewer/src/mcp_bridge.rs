@@ -1560,6 +1560,9 @@ impl App {
             ViewerRequest::ObjectContents { object_local_id } => {
                 self.start_mcp_contents(object_local_id, contents::ContentsOp::List, reply_tx);
             }
+            ViewerRequest::ObjectCopyContents { object_local_id } => {
+                self.start_mcp_contents(object_local_id, contents::ContentsOp::CopyToInventory, reply_tx);
+            }
             ViewerRequest::TaskItemPermissions {
                 object_local_id,
                 item_id,

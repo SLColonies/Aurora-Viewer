@@ -93,6 +93,8 @@ pub(super) enum ContentsOp {
         body: String,
         replace: bool,
     },
+    /// "Copy to Inventory": the whole contents into a new folder.
+    CopyToInventory,
     /// The object's own next-owner permissions.
     ObjectNextOwner {
         copy: Option<bool>,
@@ -127,6 +129,8 @@ enum Check {
 }
 
 enum Stage {
+    /// Copy to Inventory sent: waiting for the folder to hold every item.
+    Copied { folder: Uuid, names: Vec<String> },
     /// Waiting for a fresh listing before acting.
     Fetch { op: ContentsOp, asked: bool },
     /// Waiting for a listing that shows the change.
@@ -267,9 +271,16 @@ impl App {
         let now = Instant::now();
         let pending = std::mem::take(&mut self.mcp_bridge.pending_contents);
         for mut p in pending {
-            if now.duration_since(p.started) > DEADLINE {
+            // a box's whole contents may take a while (the window allows 60 s)
+            let deadline = if matches!(p.stage, Stage::Copied { .. }) {
+                Duration::from_secs(60)
+            } else {
+                DEADLINE
+            };
+            if now.duration_since(p.started) > deadline {
                 let what = match &p.stage {
                     Stage::Fetch { .. } => "the object's contents never arrived",
+                    Stage::Copied { .. } => "the folder was made but not every item arrived in it",
                     Stage::Verify { .. } => "the change was sent but never showed in the object's contents",
                     Stage::NotecardMade { .. } => "the notecard was made but never appeared in inventory",
                     Stage::RemoveThenAdd { .. } => "the old item was never removed",
@@ -361,6 +372,26 @@ impl App {
                     self.relist(p.object_uuid);
                 }
                 None
+            }
+            Stage::Copied { folder, names } => {
+                let inv = &self.world.inventory;
+                let arrived: Vec<&aurora_net::inventory::InvItem> = inv.items.values().filter(|it| it.parent == *folder).collect();
+                let all = names.iter().all(|n| arrived.iter().any(|it| &it.name == n));
+                if !all {
+                    return None;
+                }
+                let items: Vec<Value> = arrived
+                    .iter()
+                    .map(|it| json!({ "item_id": it.id.to_string(), "name": it.name, "asset_type": it.asset_type }))
+                    .collect();
+                Some(Ok(ViewerResponse::Json(json!({
+                    "ok": true,
+                    "verified": true,
+                    "folder_id": folder.to_string(),
+                    "folder_path": self.inventory_folder_path(*folder),
+                    "item_count": items.len(),
+                    "items": items,
+                }))))
             }
             Stage::NotecardMade {
                 name,
@@ -541,6 +572,26 @@ impl App {
                     last_list: now,
                 };
                 None
+            }
+            ContentsOp::CopyToInventory => {
+                let items: Vec<TaskItem> = items.into_iter().filter(|it| !it.is_folder).collect();
+                if items.is_empty() {
+                    return Some(Err(McpError::InvalidParams("the object's contents are empty".into())));
+                }
+                let name = self
+                    .build
+                    .props
+                    .get(&p.object_uuid)
+                    .map(|pr| pr.name.clone())
+                    .filter(|n| !n.is_empty())?; // its name is on its way
+                let names: Vec<String> = items.iter().map(|it| it.name.clone()).collect();
+                match self.mcp_copy_contents(p.object_uuid, name, items) {
+                    Ok(folder) => {
+                        p.stage = Stage::Copied { folder, names };
+                        None
+                    }
+                    Err(reason) => Some(Err(McpError::PermissionDenied(reason))),
+                }
             }
             ContentsOp::Remove { item } => {
                 let it = match item.find(&items) {
