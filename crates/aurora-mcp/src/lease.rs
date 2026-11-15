@@ -90,6 +90,9 @@ const APPROVAL_VALID: Duration = Duration::from_secs(120);
 pub const NOT_NOW_FOR: Duration = Duration::from_secs(300);
 /// A waiter that has not asked again for this long has given up.
 const WAITER_STALE: Duration = Duration::from_secs(120);
+/// A waiter whose turn has come but who has not asked for this long lets the
+/// next one go first (it keeps its place until WAITER_STALE).
+const HEAD_ABSENT: Duration = Duration::from_secs(45);
 
 struct Waiter {
     owner: String,
@@ -288,7 +291,16 @@ impl LeaseManager {
                 busy(&holder)
             };
         }
-        if let Some(head) = sh.queue.first().filter(|w| w.owner != owner) {
+        // The head of the line is the first waiter who can take a turn now: one
+        // told Not now waits behind the others, and one that stopped asking
+        // (HEAD_ABSENT) gives way. Either kept the whole queue wedged behind it
+        // (15 Nov: a Not-now'd agent at the head; every other agent was told
+        // next_in_line for as long as it kept polling).
+        let head = sh
+            .queue
+            .iter()
+            .find(|w| w.owner == owner || (!sh.not_now.contains_key(&w.owner) && now.duration_since(w.last_seen) < HEAD_ABSENT));
+        if let Some(head) = head.filter(|w| w.owner != owner) {
             let ahead = Some((head.owner.clone(), head.purpose.clone(), 0));
             return if wait {
                 Ok(AcquireOutcome::Waiting(waiting("next_in_line", 10, &ahead)))
@@ -672,6 +684,22 @@ mod tests {
         // Allow lifts it
         mgr.human_allow("alpha");
         granted(mgr.acquire_turn("alpha", "", 300, None, true));
+    }
+
+    #[test]
+    fn a_not_now_head_does_not_wedge_the_queue() {
+        let mgr = manager(HumanMode::Auto);
+        waiting_or_granted_first(&mgr);
+        mgr.human_not_now("alpha");
+        // beta queued behind the deferred alpha still gets its turn
+        granted(mgr.acquire_turn("beta", "", 300, None, true));
+    }
+
+    fn waiting_or_granted_first(mgr: &LeaseManager) {
+        // alpha queues behind a holder, so it is at the head when told Not now
+        let holder = granted(mgr.acquire_turn("holder", "", 300, None, true));
+        waiting(mgr.acquire_turn("alpha", "", 300, None, true));
+        mgr.release(Some(&holder.lease_id)).unwrap();
     }
 
     #[test]
