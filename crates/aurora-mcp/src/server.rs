@@ -23,6 +23,7 @@ pub struct McpServerHandle {
     pub leases: std::sync::Arc<crate::lease::LeaseManager>,
     shutdown_tx: watch::Sender<bool>,
     pub sse_tx: broadcast::Sender<String>,
+    pub status_snapshot: Arc<std::sync::RwLock<Value>>,
 }
 
 impl McpServerHandle {
@@ -129,6 +130,7 @@ pub fn spawn_server(
     let local_addr = std_listener.local_addr().unwrap_or(addr);
 
     let router = Arc::new(McpRouter::new(bridge_tx, McpProfile::from_env()));
+    let status_snapshot = router.status_snapshot.clone();
     let leases = router.leases.clone();
     let (sse_tx, _) = broadcast::channel::<String>(64);
     let (shutdown_tx, mut shutdown_rx) = watch::channel(false);
@@ -171,6 +173,7 @@ pub fn spawn_server(
         leases,
         shutdown_tx,
         sse_tx,
+        status_snapshot,
     })
 }
 
