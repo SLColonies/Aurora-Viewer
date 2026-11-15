@@ -266,6 +266,40 @@ pub enum ViewerRequest {
         subject: Option<Uuid>,
     },
     FloaterList,
+    /// Every item of a prim's contents with its four permission masks, and the
+    /// object's own properties (object_contents).
+    ObjectContents {
+        object_local_id: u32,
+    },
+    /// Set an item's next-owner copy / modify / transfer, read back.
+    TaskItemPermissions {
+        object_local_id: u32,
+        item_id: Option<Uuid>,
+        name: Option<String>,
+        copy: Option<bool>,
+        modify: Option<bool>,
+        transfer: Option<bool>,
+    },
+    /// Remove an item from a prim's contents, read back.
+    TaskItemRemove {
+        object_local_id: u32,
+        item_id: Option<Uuid>,
+        name: Option<String>,
+    },
+    /// Drop an agent-inventory item into a prim's contents, read back.
+    TaskItemAdd {
+        object_local_id: u32,
+        inventory_item_id: Uuid,
+        running: bool,
+        replace: bool,
+    },
+    /// A notecard in a prim's contents from text, read back.
+    TaskNotecardWrite {
+        object_local_id: u32,
+        name: String,
+        body: String,
+        replace: bool,
+    },
     /// The open llDialog / llTextBox / permission prompts (script_prompts).
     ScriptPromptList,
     /// Answer one (script_prompt_respond): a button label, a text box's text,
@@ -350,6 +384,12 @@ pub enum ViewerRequest {
         mono: bool,
         compile_target: Option<String>,
         running: bool,
+        /// A script of that name already in the prim: "replace" it (the
+        /// default) or "fail".
+        if_exists: Option<String>,
+        /// "Use Experience": an experience UUID, "none", or None to decide
+        /// from the source as before.
+        experience_id: Option<String>,
     },
     LslListenScriptOutput {
         object_id: Option<Uuid>,
@@ -395,6 +435,9 @@ pub enum ViewerRequest {
         local_id: u32,
         action: String,
         folder_id: Option<Uuid>,
+        /// The destination folder by its exact name (agent inventory, never the
+        /// Library), when no folder_id is given.
+        folder_name: Option<String>,
     },
     PrimSetMaterial {
         local_id: u32,
@@ -672,6 +715,7 @@ impl ViewerRequest {
             | ViewerRequest::SettingGet { .. }
             | ViewerRequest::PoserInspect { .. }
             | ViewerRequest::FloaterList
+            | ViewerRequest::ObjectContents { .. }
             | ViewerRequest::ScriptPromptList
             | ViewerRequest::ViewportCapture { .. }
             | ViewerRequest::InventoryBrowse { .. }
@@ -761,6 +805,10 @@ impl ViewerRequest {
             | ViewerRequest::VoiceTransmit { .. }
             | ViewerRequest::ViewerLogin { .. }
             | ViewerRequest::ScriptPromptRespond { .. }
+            | ViewerRequest::TaskItemPermissions { .. }
+            | ViewerRequest::TaskItemRemove { .. }
+            | ViewerRequest::TaskItemAdd { .. }
+            | ViewerRequest::TaskNotecardWrite { .. }
             | ViewerRequest::ViewerShutdown => true,
         }
     }
