@@ -7829,6 +7829,24 @@ impl Backend {
                     }
                     None
                 }
+                // No swapchain image (macOS gives none, or times out, while
+                // the window is behind others): a frame someone is waiting
+                // to read back is drawn offscreen instead, never presented,
+                // or the capture would wait for a visible window forever.
+                _ if wanted.is_some() => Some(FrameTarget::Offscreen(self.device.create_texture(&wgpu::TextureDescriptor {
+                    label: Some("capture_without_surface"),
+                    size: wgpu::Extent3d {
+                        width: self.config.width,
+                        height: self.config.height,
+                        depth_or_array_layers: 1,
+                    },
+                    mip_level_count: 1,
+                    sample_count: 1,
+                    dimension: wgpu::TextureDimension::D2,
+                    format: self.config.format,
+                    usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC | wgpu::TextureUsages::TEXTURE_BINDING,
+                    view_formats: &[],
+                }))),
                 _ => None,
             }
         } else {
