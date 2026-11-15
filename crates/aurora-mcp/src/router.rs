@@ -923,6 +923,17 @@ impl McpRouter {
             }
 
             // ---- Phase 4: Inventory & Appearance (COF State Machine) ----
+            "object_land_impact" => {
+                let object_local_id =
+                    args.get("object_local_id")
+                        .or_else(|| args.get("local_id"))
+                        .and_then(Value::as_u64)
+                        .ok_or_else(|| McpError::InvalidParams("object_local_id is required".into()))? as u32;
+                let resp = self
+                    .send_to_viewer(None, ViewerRequest::ObjectLandImpact { object_local_id }, 20_000)
+                    .await?;
+                Ok(text_block(into_json(resp)))
+            }
             "inventory_offers" => {
                 let resp = self.send_to_viewer(None, ViewerRequest::InventoryOffers, 5000).await?;
                 Ok(text_block(into_json(resp)))
@@ -3136,6 +3147,16 @@ pub fn all_tool_definitions() -> Vec<ToolDefinition> {
             in_compact_profile: true,
         },
 
+        ToolDefinition {
+            name: "object_land_impact".into(),
+            description: "Land impact of an in-world object, as the build tool's Land Impact and Object Weights show it: the linkset's land impact, physics cost and download / physics / server weights, and each link's own resource and physics cost. Any link's local_id names its whole linkset. Read-only; asks the simulator (GetObjectCost, ResourceCostSelected).".into(),
+            input_schema: json!({
+                "type": "object",
+                "properties": { "object_local_id": { "type": "integer", "description": "any link of the object" } },
+                "required": ["object_local_id"]
+            }),
+            in_compact_profile: true,
+        },
         // Phase 4: Inventory & Appearance (COF Queue)
         ToolDefinition {
             name: "inventory_offers".into(),

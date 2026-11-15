@@ -46,6 +46,9 @@ pub enum CapPurpose {
     LegacyMaterials,
     /// CreateTaskInventoryItem for the contents of this object.
     CreateTaskItem(Uuid),
+    /// A request made for an MCP tool: the answer is kept, raw, in
+    /// `BuildTool::mcp_replies` under its tag.
+    Mcp,
 }
 
 /// One extra parameter block, with its new value (`None`: not in use).

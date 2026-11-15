@@ -297,6 +297,10 @@ pub enum ViewerRequest {
     },
     /// The inventory offers waiting for an answer.
     InventoryOffers,
+    /// Land impact and weights of an in-world object's linkset (read-only).
+    ObjectLandImpact {
+        object_local_id: u32,
+    },
     /// Accept or decline one offer.
     InventoryOfferRespond {
         offer_id: u64,
@@ -752,6 +756,7 @@ impl ViewerRequest {
             | ViewerRequest::FloaterList
             | ViewerRequest::ObjectContents { .. }
             | ViewerRequest::InventoryOffers
+            | ViewerRequest::ObjectLandImpact { .. }
             | ViewerRequest::ScriptPromptList
             | ViewerRequest::ViewportCapture { .. }
             | ViewerRequest::InventoryBrowse { .. }

@@ -10,6 +10,8 @@ use super::*;
 mod contents;
 #[path = "mcp_bridge/inventory.rs"]
 mod inv_tools;
+#[path = "mcp_bridge/land_impact.rs"]
+mod land_impact;
 #[path = "mcp_bridge/offers.rs"]
 mod offers;
 use aurora_mcp::{
@@ -248,6 +250,7 @@ pub struct McpBridge {
     pending_trash: VecDeque<inv_tools::PendingTrash>,
     pending_radar: VecDeque<PendingRadar>,
     pending_offers: VecDeque<offers::PendingOffer>,
+    pending_costs: VecDeque<land_impact::PendingCost>,
     /// The last source sent per object (bytes, sha256): reported back
     /// instead of the source, which may hold keys.
     script_fingerprints: HashMap<Uuid, (usize, String)>,
@@ -779,6 +782,7 @@ impl App {
         self.poll_mcp_contents();
         self.poll_mcp_inventory_delete();
         self.poll_mcp_offers();
+        self.poll_mcp_land_impact();
         let scans = std::mem::take(&mut self.mcp_bridge.pending_radar);
         for scan in scans {
             let (json, unknown) = self.mcp_radar_objects_quiet(scan.max_radius_m, scan.root_only, scan.name_filter.clone(), scan.limit);
@@ -1708,6 +1712,9 @@ impl App {
                 };
                 let resp = folder_uuid.and_then(|f| self.handle_mcp_inventory_browse(f, None, None, false, limit));
                 let _ = reply_tx.send(resp);
+            }
+            ViewerRequest::ObjectLandImpact { object_local_id } => {
+                self.start_mcp_land_impact(object_local_id, reply_tx);
             }
             ViewerRequest::InventoryOffers => {
                 let _ = reply_tx.send(Ok(self.mcp_inventory_offers()));

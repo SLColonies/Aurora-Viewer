@@ -842,6 +842,8 @@ pub struct BuildTool {
     pub ui: ui::FloaterState,
     /// Capability requests in flight (tag -> what for).
     pub caps: HashMap<u64, edits::CapPurpose>,
+    /// Answers to CapPurpose::Mcp requests, by tag, until the MCP takes them.
+    pub mcp_replies: HashMap<u64, Result<aurora_llsd::Llsd, String>>,
     next_tag: u64,
     /// The selection only lives while a right-click menu is open (the pie
     /// menu selection of LLViewerMenuHolderGL, dropped by deselectUnused
@@ -915,6 +917,7 @@ impl Default for BuildTool {
             place: place::Place::default(),
             ui: ui::FloaterState::default(),
             caps: HashMap::new(),
+            mcp_replies: HashMap::new(),
             next_tag: 1,
             menu_selection: false,
             selection_linked: false,

@@ -198,6 +198,9 @@ impl BuildTool {
                 }
             }
             CapPurpose::AreaSearchCost => {}
+            CapPurpose::Mcp => {
+                self.mcp_replies.insert(tag, result);
+            }
             CapPurpose::SelectionCost => {
                 self.costs.weights = Some(result.map(|v| {
                     let s = &v["selected"];
