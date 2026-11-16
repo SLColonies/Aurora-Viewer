@@ -301,6 +301,12 @@ pub enum ViewerRequest {
     ObjectLandImpact {
         object_local_id: u32,
     },
+    /// The estate's access lists, or a ban / unban on this estate or all of them.
+    EstateAccess {
+        action: String,
+        agent_id: Option<String>,
+        all_estates: bool,
+    },
     /// Accept or decline one offer.
     InventoryOfferRespond {
         offer_id: u64,
@@ -739,6 +745,7 @@ impl ViewerRequest {
     /// therefore requires an active control lease.
     pub fn requires_lease(&self) -> bool {
         match self {
+            ViewerRequest::EstateAccess { action, .. } => action != "list",
             ViewerRequest::ConnectionStatus
             | ViewerRequest::CapabilitiesRefresh
             | ViewerRequest::ApplyRollbacks { .. }

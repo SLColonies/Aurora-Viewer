@@ -10,6 +10,8 @@ use super::*;
 mod contents;
 #[path = "mcp_bridge/inventory.rs"]
 mod inv_tools;
+#[path = "mcp_bridge/estate_access.rs"]
+mod estate_access;
 #[path = "mcp_bridge/land_impact.rs"]
 mod land_impact;
 #[path = "mcp_bridge/offers.rs"]
@@ -1715,6 +1717,13 @@ impl App {
             }
             ViewerRequest::ObjectLandImpact { object_local_id } => {
                 self.start_mcp_land_impact(object_local_id, reply_tx);
+            }
+            ViewerRequest::EstateAccess { action, agent_id, all_estates } => {
+                let resp = match agent_id.as_deref().map(Uuid::parse_str).transpose() {
+                    Ok(id) => self.mcp_estate_access(&action, id, all_estates),
+                    Err(e) => Err(McpError::InvalidParams(format!("agent_id: {e}"))),
+                };
+                let _ = reply_tx.send(resp);
             }
             ViewerRequest::InventoryOffers => {
                 let _ = reply_tx.send(Ok(self.mcp_inventory_offers()));

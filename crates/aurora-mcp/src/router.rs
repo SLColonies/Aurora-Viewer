@@ -934,6 +934,16 @@ impl McpRouter {
                     .await?;
                 Ok(text_block(into_json(resp)))
             }
+            "estate_access" => {
+                let action = args.get("action").and_then(Value::as_str).unwrap_or("list").to_string();
+                let agent_id = args.get("agent_id").and_then(Value::as_str).map(str::to_string);
+                let all_estates = args.get("all_estates").and_then(Value::as_bool).unwrap_or(false);
+                let lease = if action == "list" { None } else { args.get("lease_id").and_then(Value::as_str).map(str::to_string) };
+                let resp = self
+                    .send_to_viewer(lease, ViewerRequest::EstateAccess { action, agent_id, all_estates }, 10_000)
+                    .await?;
+                Ok(text_block(into_json(resp)))
+            }
             "inventory_offers" => {
                 let resp = self.send_to_viewer(None, ViewerRequest::InventoryOffers, 5000).await?;
                 Ok(text_block(into_json(resp)))
@@ -3157,6 +3167,21 @@ pub fn all_tool_definitions() -> Vec<ToolDefinition> {
             }),
             in_compact_profile: true,
         },
+        ToolDefinition {
+            name: "estate_access".into(),
+            description: "The Region/Estate window's Access tab for the region the avatar stands in. action=list reads the estate's managers, allowed residents and groups and banned residents (with agent_id, agent_banned says whether that resident is on the ban list; loaded=false means the lists are still on their way, ask again). action=ban bans agent_id (and takes them off the allowed list), action=unban lifts it; all_estates=true applies it to every estate of this owner (owner) or every estate managed for them (manager), as the viewer's \"all estates\" answer. Needs the estate's owner or a manager; the owner and managers cannot be banned. ban/unban need a lease.".into(),
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "action": { "type": "string", "enum": ["list", "ban", "unban"] },
+                    "agent_id": { "type": "string", "description": "the resident's key (UUID)" },
+                    "all_estates": { "type": "boolean", "default": false },
+                    "lease_id": { "type": "string" }
+                },
+                "required": ["action"]
+            }),
+            in_compact_profile: true,
+        },
         // Phase 4: Inventory & Appearance (COF Queue)
         ToolDefinition {
             name: "inventory_offers".into(),
@@ -4320,7 +4345,7 @@ mod tests {
     #[test]
     fn mcp_router_exposes_legacy_and_aurora_tools() {
         let defs = all_tool_definitions();
-        assert_eq!(defs.len(), 126, "expected 126 total tools (43 Legacy + 83 Aurora-native)");
+        assert_eq!(defs.len(), 127, "expected 127 total tools (43 Legacy + 84 Aurora-native)");
         let names: Vec<&str> = defs.iter().map(|d| d.name.as_str()).collect();
         // Verify all 43 Legacy Viewer compatibility tools
         for legacy in [
