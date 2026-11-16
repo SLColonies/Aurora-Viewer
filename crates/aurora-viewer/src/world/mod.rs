@@ -872,6 +872,29 @@ impl World {
             0.0
         }
     }
+    /// LLViewerObject::processUpdateMessage: an update of our own avatar
+    /// flagged FLAGS_SERVER_AUTOPILOT whose rotation changed turns the agent
+    /// to it (gAgent.resetAxes + rotate). This is how llSetAgentRot, and the
+    /// server's autopilot, turn us: without it the next AgentUpdate sends our
+    /// own body rotation back and the script's turn is lost. Terse updates
+    /// carry no flags; the last full update's flags hold, as LL's mFlags do.
+    fn take_server_autopilot_turn(&mut self, before: Option<glam::Quat>) {
+        const FLAGS_SERVER_AUTOPILOT: u32 = 1 << 24;
+        let Some(o) = self.objects.index_of_uuid(&self.agent_id).and_then(|i| self.objects.get(i)) else {
+            return;
+        };
+        if o.update_flags & FLAGS_SERVER_AUTOPILOT == 0 || o.parent_id != 0 {
+            return;
+        }
+        let rot = o.rotation;
+        if before.is_some_and(|b| b.abs_diff_eq(rot, 1e-5)) {
+            return;
+        }
+        let look = rot * glam::Vec3::X;
+        log::info!("server autopilot turned the agent to yaw {:.1} deg", look.y.atan2(look.x).to_degrees());
+        self.agent.set_look_at(look);
+    }
+
     /// LLFloaterRegionInfo::refreshFromRegion on `handle`: the panels ask
     /// (estate, access, covenant, experiences, environment), then, when the
     /// window opens, RequestRegionInfo (requestRegionInfo).
@@ -3125,7 +3148,11 @@ impl World {
                     }
                     self.on_camera_parent_change(handle, &u);
                     let foot_plane = u.foot_plane;
+                    let before = if is_me { self.objects.index_of_uuid(&avatar_id).and_then(|i| self.objects.get(i)).map(|o| o.rotation) } else { None };
                     self.objects.upsert_at(handle, u, self.received);
+                    if is_me {
+                        self.take_server_autopilot_turn(before);
+                    }
                     self.note_friend_join_object(handle, avatar_id, foot_plane);
                     if is_me {
                         let at = self.agent_report_time();
@@ -3150,7 +3177,11 @@ impl World {
                     if let Some(idx) = self.objects.index_of(&key) {
                         let mut mine = false;
                         let mut seated = false;
+                        let before = self.objects.get(idx).filter(|o| o.full_id == me).map(|o| o.rotation);
                         self.objects.apply_terse_at(idx, &t, self.received);
+                        if before.is_some() {
+                            self.take_server_autopilot_turn(before);
+                        }
                         if let Some(o) = self.objects.get(idx) {
                             mine = o.full_id == me;
                             seated = o.parent_id != 0;
