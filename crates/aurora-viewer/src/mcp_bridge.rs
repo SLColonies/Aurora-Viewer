@@ -1094,11 +1094,12 @@ impl App {
                     .objects
                     .iter()
                     .filter(|(_, o)| o.is_avatar() && o.parent_id == 0)
-                    .filter_map(|(_, o)| {
+                    .filter_map(|(idx, o)| {
                         let dist = o.position.distance(me);
                         if dist > max_radius_m {
                             return None;
                         }
+                        let foot_trace = self.scene.foot_trace_report(&self.world, idx, std::time::Instant::now());
                         let anims: Vec<String> = self
                             .world
                             .animations
@@ -1117,6 +1118,7 @@ impl App {
                                 "sitting_on": o.parent_id,
                                 "animations": anims,
                                 "is_self": o.full_id == self.world.agent_id,
+                                "foot_trace": foot_trace,
                             }),
                         ))
                     })

@@ -193,6 +193,57 @@ impl Scene {
 /// carry a foot: shoe, LOD and plane-fit differences, not a water layer.
 const ABOVE_CONTACT: f32 = 0.08;
 
+impl Scene {
+    /// What foot placement sees under avatar `idx` (MCP radar diagnostics):
+    /// the simulator's contact plane height there, terrain, and every face
+    /// a support trace hits from 0.3 m above the root down 2.5 m.
+    pub fn foot_trace_report(&self, world: &World, idx: usize, now: Instant) -> serde_json::Value {
+        let Some((position, _, _)) = Self::object_transform(world, idx, now, 0) else {
+            return serde_json::Value::Null;
+        };
+        let object = world.objects.get(idx);
+        let contact = object.and_then(|o| o.foot_plane).map(|mut p| {
+            let raw = p;
+            p.w += p.truncate().dot(world.region_offset(object.map(|o| o.key.region).unwrap_or_default()).unwrap_or(Vec3::ZERO));
+            let z = (p.w - p.x * position.x - p.y * position.y - 0.05) / p.z;
+            serde_json::json!({ "raw": [raw.x, raw.y, raw.z, raw.w], "floor_z_render": z })
+        });
+        let ray = (position + Vec3::Z * 0.3, -Vec3::Z);
+        let mut candidates = Vec::new();
+        self.pick.ray_candidates(ray, &mut candidates);
+        let mut hits: Vec<(f32, serde_json::Value)> = candidates
+            .iter()
+            .filter_map(|&i| {
+                let o = world.objects.get(i)?;
+                let g = self.gpu.get(i)?;
+                let candidate = Self::foot_support_candidate(g, o);
+                let hit = self.support_hit(world, i, ray, now).filter(|h| h.t.is_finite() && (0.0..=2.5).contains(&h.t))?;
+                let z = ray.0.z - hit.t;
+                Some((
+                    z,
+                    serde_json::json!({
+                        "local_id": o.key.local_id,
+                        "parent_id": o.parent_id,
+                        "face": hit.face,
+                        "z_render": z,
+                        "below_root_m": position.z - z,
+                        "normal_z": hit.normal.normalize_or(Vec3::Z).z,
+                        "foot_candidate": candidate,
+                        "phantom": o.update_flags & crate::build::edits::FLAGS_PHANTOM != 0,
+                    }),
+                ))
+            })
+            .collect();
+        hits.sort_by(|a, b| b.0.total_cmp(&a.0));
+        serde_json::json!({
+            "root_z_render": position.z,
+            "contact": contact,
+            "terrain_z": world.ground_height(position),
+            "hits_top_down": hits.into_iter().map(|(_, v)| v).collect::<Vec<_>>(),
+        })
+    }
+}
+
 fn terrain_normal(world: &World, p: Vec3) -> Vec3 {
     let height = world.ground_height(p).unwrap_or(p.z);
     let sample = |offset| world.ground_height(p + offset).unwrap_or(height);
