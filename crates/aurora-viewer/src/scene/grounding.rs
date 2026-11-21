@@ -132,6 +132,13 @@ impl Scene {
     pub(super) fn ground_surface(&self, world: &World, frame: Frame, ankle: Vec3, now: Instant) -> Option<Surface> {
         let reach = crate::settings::MAX_GROUND_FEET_HEIGHT + 0.002;
         let ray = (ankle + Vec3::Z * reach, -Vec3::Z);
+        // The simulator's contact plane is where its collision put this
+        // avatar. A drawn surface well above it is not solid to the
+        // simulator (an alpha water face over a flooded bed, a physics model
+        // that leaves a face out): an avatar the simulator has knee-deep in
+        // water must not be drawn standing on it. Steps at or below the
+        // contact still refine each foot.
+        let contact_floor = frame.contact.map(|p| (p.w - p.x * ankle.x - p.y * ankle.y - 0.05) / p.z).filter(|z| z.is_finite());
         let mut candidates = Vec::new();
         self.pick.ray_candidates(ray, &mut candidates);
         let hit = candidates
@@ -145,6 +152,7 @@ impl Scene {
                 // (the highest level: the drawn one follows the camera, #1281)
                 self.support_hit(world, idx, ray, now)
                     .filter(|hit| hit.t.is_finite() && (0.0..=reach * 2.0).contains(&hit.t) && hit.normal.is_finite() && hit.normal.z > 0.1)
+                    .filter(|hit| contact_floor.is_none_or(|floor| ray.0.z - hit.t <= floor + ABOVE_CONTACT))
             })
             .min_by(|a, b| a.t.total_cmp(&b.t));
         let terrain = world
@@ -180,6 +188,10 @@ impl Scene {
         }
     }
 }
+
+/// How far above the simulator's contact plane a drawn surface may still
+/// carry a foot: shoe, LOD and plane-fit differences, not a water layer.
+const ABOVE_CONTACT: f32 = 0.08;
 
 fn terrain_normal(world: &World, p: Vec3) -> Vec3 {
     let height = world.ground_height(p).unwrap_or(p.z);
@@ -233,6 +245,20 @@ mod tests {
         frame.contact = None;
         assert!(scene.ground_surface(&world, frame, ankle, now).is_none());
         world.objects.get_mut(front).unwrap().update_flags = 0;
+        // The simulator has the avatar standing 0.3 m under the drawn top
+        // (a water face its physics model leaves out): the contact wins.
+        frame.contact = Some(Vec4::new(0.0, 0.0, 1.0, 50.25));
+        let wading = scene.ground_surface(&world, frame, ankle, now).expect("contact under the water face");
+        assert!(
+            (wading.position.z - 50.2).abs() < 0.001,
+            "a drawn surface far above the contact plane carried the feet: {}",
+            wading.position.z
+        );
+        // Within the tolerance the exact surface still refines the foot.
+        frame.contact = Some(Vec4::new(0.0, 0.0, 1.0, 50.5));
+        let near = scene.ground_surface(&world, frame, ankle, now).expect("platform top");
+        assert!((near.position.z - 50.5).abs() < 0.001);
+        frame.contact = None;
         scene.gpu[front].owner_avatar = Some(front);
         assert!(scene.ground_surface(&world, frame, ankle, now).is_none());
     }
